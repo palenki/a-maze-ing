@@ -10,7 +10,7 @@ PIP = $(VENV)/bin/pip
 install:
 	python3 -m venv $(VENV)
 	$(PIP) install --upgrade pip
-	$(PIP) install flake8 mypy
+	$(PIP) install flake8 mypy build
 	$(PIP) install -r requirements.txt
 
 run:
@@ -25,5 +25,8 @@ clean:
 lint:
 	$(PYTHON) -m flake8 .
 	$(PYTHON) -m mypy . --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
+
+build:
+	$(PYTHON) -m build
 
 .PHONY: install run debug clean lint 
