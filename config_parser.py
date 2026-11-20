@@ -1,88 +1,119 @@
-"""Configuration file loader and validator."""
+"""Configuration file parser and validator."""
 
 from dataclasses import dataclass
-from typing import Dict, Optional
-from mazegen.models import Point
+from typing import Optional
 
 
 @dataclass(frozen=True)
-class Config:
+class MazeConfig:
     """Parsed and validated maze generation parameters."""
 
     width: int
     height: int
-    entry: Point
-    exit_pt: Point
+    entry: tuple[int, int]
+    exit_pt: tuple[int, int]
     output_file: str
     perfect: bool
-    seed: Optional[int]
+    seed: Optional[int] = None
 
 
-def parse_config(filepath: str) -> Config:
+def _parse_coord(raw: str, key_name: str) -> tuple[int, int]:
+	"""Parse a 'x,y' string into a tuple of two integers."""
+	parts: list = raw.split(",")
+	if len(parts) != 2:
+		raise Value Error(f"{key_name} must be in 'x,y' format, got '{raw}'.")
+	try:
+		x: int = int(parts[0].strip())
+		y: int = int(parts[1].strip())
+	except ValueError as err:
+		raise ValueError(
+			f"{key_name} coordinates must be integers, got '{raw}'."
+	) from err
+	return (x, y)
+
+
+def _parse_bool(raw: str, key_name: str) -> bool:
+	"""Parse 'True' or 'False' string into a boolean."""
+	lowered: str = raw.strip().lower()
+	if lowered == "true":
+		return True
+	if lowered == "false":
+		return False
+	raise ValueError(f"{key_name} must be True or False, got '{raw}'.")
+
+
+def parse_config(filepath: str) -> MazeConfig:
     """Read, parse, and validate a key-value maze configuration file.
 
     Args:
         filepath: Path to the configuration file.
 
     Returns:
-        Validated Config dataclass instance.
+        Validated MazeConfig dataclass instance.
 
     Raises:
         ValueError: If mandatory keys are missing or invalid parameters supplied.
     """
-    raw_data: Dict[str, str] = {}
+    raw_data: dict[str, str] = {}
 
-    with open(filepath, "r", encoding="utf-8") as file:
-        for line_num, line in enumerate(file, 1):
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
+	try:
+		with open(filepath, "r", encoding="utf-8") as file:
+			for line_num, line in enumerate(file, start=1):
+				line = line.strip()
+				if not line or line.startswith("#"):
+					continue
 
-            if "=" not in line:
-                raise ValueError(f"Line {line_num}: Invalid line format (missing '=')")
+				if "=" not in line:
+					raise ValueError(f"Syntax error on line {line_num}: (missing '=').")
 
-            key, value = line.split("=", 1)
-            raw_data[key.strip()] = value.strip()
+				key, value = line.split("=", 1)
+				key = key.strip().upper()
+				value = value.strip()
+				if not key or not value:
+					raise ValueError(f"Syntax error on line {line_num}: empty key or value.")
+				raw_data[key] = value
+	except OsError as err:
+		raise RuntimeError(f"Could not read config file: {err}") from err
 
-    mandatory_keys = {"WIDTH", "HEIGHT", "ENTRY", "EXIT", "OUTPUT_FILE", "PERFECT"}
-    missing = mandatory_keys - raw_data.keys()
-    if missing:
-        raise ValueError(f"Missing mandatory configuration keys: {', '.join(missing)}")
+    required_keys: list[str] = [
+		"WIDTH",
+		"HEIGHT",
+		"ENTRY",
+		"EXIT",
+		"OUTPUT_FILE",
+		"PERFECT",
+	]
+	for req in required_keys:
+		if req not in raw_data:
+			raise ValueError(f"Missing mandatory configuration key: {req}.")
+	try:
+		width: int = int(raw_data["WIDTH"])
+		height: int = int(raw_data["HEIGHT"])
+	except ValueError as err:
+		raise ValueError("WIDTH and HEIGHT must be valid integers.") from err
 
-    try:
-        width = int(raw_data["WIDTH"])
-        height = int(raw_data["HEIGHT"])
+	entry: tuple[int, int] = _parse_coord(raw_data["ENTRY"], "ENTRY")
+    exit_pt: tuple[int, int] = _parse_coord(raw_data["EXIT"], "EXIT")
+	output_file: str = raw_data["OUTPUT_FILE"]
+	perfect: bool = _parse_bool(raw_data["PERFECT"], "PERFECT")
 
-        entry_parts = [int(i) for i in raw_data["ENTRY"].split(",")]
-        exit_parts = [int(i) for i in raw_data["EXIT"].split(",")]
+	seed: Optional[int] = None
+	if "SEED" in raw_data:
+		try:
+			seed = int(raw_data["SEED"])
+		except ValueError as err:
+			raise ValueError("SEED must be an integer.") from err
 
-        if len(entry_parts) != 2 or len(exit_parts) != 2:
-            raise ValueError("ENTRY and EXIT must be in 'x,y' format.")
-
-        entry = Point(entry_parts[0], entry_parts[1])
-        exit_pt = Point(exit_parts[0], exit_parts[1])
-
-        output_file = raw_data["OUTPUT_FILE"]
-        perfect = raw_data["PERFECT"].lower() in ("true", "1", "yes")
-
-        seed: Optional[int] = None
-        if "SEED" in raw_data:
-            seed = int(raw_data["SEED"])
-
-    except ValueError as err:
-        raise ValueError(f"Error parsing numerical configuration values: {err}") from err
-
-    # Business rules validation
     if width <= 0 or height <= 0:
         raise ValueError("Maze dimensions (WIDTH, HEIGHT) must be positive integers.")
-    if not (0 <= entry.x < width and 0 <= entry.y < height):
+    if not (0 <= entry[0] < width and 0 <= entry[1] < height):
         raise ValueError(f"ENTRY {entry} is outside maze bounds ({width}x{height}).")
-    if not (0 <= exit_pt.x < width and 0 <= exit_pt.y < height):
+    if not (0 <= exit_pt[0] < width and 0 <= exit_pt[1] < height):
         raise ValueError(f"EXIT {exit_pt} is outside maze bounds ({width}x{height}).")
     if entry == exit_pt:
         raise ValueError("ENTRY and EXIT points must be different.")
 
-    return Config(
+    return MazeConfig(
         width=width,
         height=height,
         entry=entry,
