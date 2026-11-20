@@ -1,42 +1,55 @@
-"""Configuration file loader and validador"""
-
+"""Configuration file loader and validator."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Optional
 from mazegen.models import Point
 
 
 @dataclass(frozen=True)
 class Config:
-	"""Parsed and validated maze generation parameters."""
-	width: int
-	height: int
-	entry: Point
-	exit_pt: Point
-	output_file: str
-	perfect: bool
-	seed: Optional[int]
+    """Parsed and validated maze generation parameters."""
+
+    width: int
+    height: int
+    entry: Point
+    exit_pt: Point
+    output_file: str
+    perfect: bool
+    seed: Optional[int]
 
 
 def parse_config(filepath: str) -> Config:
-	raw_data: dict[str, str] = {}
+    """Read, parse, and validate a key-value maze configuration file.
 
-	with open(filepath, "r", encoding="utf-8") as file:
-		for line_num, line in enumerate(file, 1)
-			line = line.strip()
-			if not line or line.startswith("#")
-				continue
+    Args:
+        filepath: Path to the configuration file.
 
-			if "=" not in line:
-				raise ValueError(f"Line {line_num}: Invalid line format (missing '=')")
-			key, value = line.split("=", 1)
-			raw_data[key.strip()] = value.strip()
+    Returns:
+        Validated Config dataclass instance.
 
-	mandatory_keys = {"WIDTH", "HEIGHT", "ENTRY", "EXIT", "OUTPUT_FILE", "PERFECT"}
-	missing = mandatory_keys - raw_data.keys()
-	if missing:
-		raise ValueError(f"Missing mandatory configuration keys: {', '.join(missing)}")
-	try:
+    Raises:
+        ValueError: If mandatory keys are missing or invalid parameters supplied.
+    """
+    raw_data: Dict[str, str] = {}
+
+    with open(filepath, "r", encoding="utf-8") as file:
+        for line_num, line in enumerate(file, 1):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            if "=" not in line:
+                raise ValueError(f"Line {line_num}: Invalid line format (missing '=')")
+
+            key, value = line.split("=", 1)
+            raw_data[key.strip()] = value.strip()
+
+    mandatory_keys = {"WIDTH", "HEIGHT", "ENTRY", "EXIT", "OUTPUT_FILE", "PERFECT"}
+    missing = mandatory_keys - raw_data.keys()
+    if missing:
+        raise ValueError(f"Missing mandatory configuration keys: {', '.join(missing)}")
+
+    try:
         width = int(raw_data["WIDTH"])
         height = int(raw_data["HEIGHT"])
 
@@ -58,7 +71,8 @@ def parse_config(filepath: str) -> Config:
 
     except ValueError as err:
         raise ValueError(f"Error parsing numerical configuration values: {err}") from err
-	# Business rules validation
+
+    # Business rules validation
     if width <= 0 or height <= 0:
         raise ValueError("Maze dimensions (WIDTH, HEIGHT) must be positive integers.")
     if not (0 <= entry.x < width and 0 <= entry.y < height):

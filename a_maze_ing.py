@@ -8,12 +8,12 @@ from mazegen import MazeGenerator
 from visualizer import Visualizer
 from writer import write_maze_file
 
-def exit_with_error(massage: str) -> NoReturn:
+def exit_with_error(message: str) -> NoReturn:
 	"""Print an error message to stderr and exit.
 	Args:
 		message: Descriptive error message to display.
 	"""
-	sys.stderr.write("[STDERR] Error: {message}")
+	sys.stderr.write(f"[STDERR] Error: {message}\n")
 	sys.exit(1)
 
 
@@ -29,7 +29,9 @@ def main() -> None:
 			width=config.width,
 			height=config.height,
 			entry=(config.entry.x, config.entry.y),
-			exit_pt=(config.exit)
+			exit_pt=(config.exit_pt.x, config.exit_pt.y),
+			perfect=config.perfect,
+			seed=config.seed,
 		)
 
 		generator.generate()

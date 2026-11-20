@@ -11,7 +11,6 @@ install:
 	python3 -m venv $(VENV)
 	$(PIP) install --upgrade pip
 	$(PIP) install flake8 mypy build
-	$(PIP) install -r requirements.txt
 
 run:
 	$(PYTHON) a_maze_ing.py config.txt
