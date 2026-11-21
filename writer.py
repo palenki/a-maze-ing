@@ -1,35 +1,25 @@
-"""Module responsible for writing maze output to file in hexadecimal format."""
+"""Hexadecimal file exporter for generated mazes."""
 
-from typing import List
-from mazegen.models import Cell, Point
+from mazegen.models import Cell
 
 
 def write_maze_file(
     filepath: str,
-    grid: List[List[Cell]],
-    entry: Point,
-    exit_pt: Point,
-    shortest_path: str,
+    grid: list[list[Cell]],
+    entry: tuple[int, int],
+    exit_pt: tuple[int, int],
+    solution: str,
 ) -> None:
-    """Export maze wall grid and metadata to output file using context manager.
+    """Write the maze grid in hexadecimal format and solution metadata."""
+    try:
+        with open(filepath, "w", encoding="utf-8") as file:
+            for row in grid:
+                hex_line = "".join(cell.to_hex() for cell in row)
+                file.write(f"{hex_line}\n")
 
-    Args:
-        filepath: Destination file path.
-        grid: 2D matrix of Cell objects.
-        entry: Entry point coordinates.
-        exit_pt: Exit point coordinates.
-        shortest_path: Solution directions string.
-    """
-    with open(filepath, "w", encoding="utf-8") as file:
-        # 1. Write hexadecimal wall representation row by row
-        for row in grid:
-            hex_row = "".join(cell.to_hex() for cell in row)
-            file.write(f"{hex_row}\n")
-
-        # 2. Empty line separator
-        file.write("\n")
-
-        # 3. Entry, Exit, and Shortest path metadata
-        file.write(f"{entry.x},{entry.y}\n")
-        file.write(f"{exit_pt.x},{exit_pt.y}\n")
-        file.write(f"{shortest_path}\n")
+            file.write("\n")
+            file.write(f"{entry[0]},{entry[1]}\n")
+            file.write(f"{exit_pt[0]},{exit_pt[1]}\n")
+            file.write(f"{solution}\n")
+    except OSError as exc:
+        raise RuntimeError(f"Failed to write output file: {exc}") from exc

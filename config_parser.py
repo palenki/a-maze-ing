@@ -18,28 +18,28 @@ class MazeConfig:
 
 
 def _parse_coord(raw: str, key_name: str) -> tuple[int, int]:
-	"""Parse a 'x,y' string into a tuple of two integers."""
-	parts: list = raw.split(",")
-	if len(parts) != 2:
-		raise Value Error(f"{key_name} must be in 'x,y' format, got '{raw}'.")
-	try:
-		x: int = int(parts[0].strip())
-		y: int = int(parts[1].strip())
-	except ValueError as err:
-		raise ValueError(
-			f"{key_name} coordinates must be integers, got '{raw}'."
-	) from err
-	return (x, y)
+    """Parse a 'x,y' string into a tuple of two integers."""
+    parts: list = raw.split(",")
+    if len(parts) != 2:
+        raise ValueError(f"{key_name} must be in 'x,y' format, got '{raw}'.")
+    try:
+        x: int = int(parts[0].strip())
+        y: int = int(parts[1].strip())
+    except ValueError as err:
+        raise ValueError(
+            f"{key_name} coordinates must be integers, got '{raw}'."
+    ) from err
+    return (x, y)
 
 
 def _parse_bool(raw: str, key_name: str) -> bool:
-	"""Parse 'True' or 'False' string into a boolean."""
-	lowered: str = raw.strip().lower()
-	if lowered == "true":
-		return True
-	if lowered == "false":
-		return False
-	raise ValueError(f"{key_name} must be True or False, got '{raw}'.")
+    """Parse 'True' or 'False' string into a boolean."""
+    lowered: str = raw.strip().lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    raise ValueError(f"{key_name} must be True or False, got '{raw}'.")
 
 
 def parse_config(filepath: str) -> MazeConfig:
@@ -56,53 +56,53 @@ def parse_config(filepath: str) -> MazeConfig:
     """
     raw_data: dict[str, str] = {}
 
-	try:
-		with open(filepath, "r", encoding="utf-8") as file:
-			for line_num, line in enumerate(file, start=1):
-				line = line.strip()
-				if not line or line.startswith("#"):
-					continue
+    try:
+        with open(filepath, "r", encoding="utf-8") as file:
+            for line_num, line in enumerate(file, start=1):
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
 
-				if "=" not in line:
-					raise ValueError(f"Syntax error on line {line_num}: (missing '=').")
+                if "=" not in line:
+                    raise ValueError(f"Syntax error on line {line_num}: (missing '=').")
 
-				key, value = line.split("=", 1)
-				key = key.strip().upper()
-				value = value.strip()
-				if not key or not value:
-					raise ValueError(f"Syntax error on line {line_num}: empty key or value.")
-				raw_data[key] = value
-	except OsError as err:
-		raise RuntimeError(f"Could not read config file: {err}") from err
+                key, value = line.split("=", 1)
+                key = key.strip().upper()
+                value = value.strip()
+                if not key or not value:
+                    raise ValueError(f"Syntax error on line {line_num}: empty key or value.")
+                raw_data[key] = value
+    except OSError as err:
+        raise RuntimeError(f"Could not read config file: {err}") from err
 
     required_keys: list[str] = [
-		"WIDTH",
-		"HEIGHT",
-		"ENTRY",
-		"EXIT",
-		"OUTPUT_FILE",
-		"PERFECT",
-	]
-	for req in required_keys:
-		if req not in raw_data:
-			raise ValueError(f"Missing mandatory configuration key: {req}.")
-	try:
-		width: int = int(raw_data["WIDTH"])
-		height: int = int(raw_data["HEIGHT"])
-	except ValueError as err:
-		raise ValueError("WIDTH and HEIGHT must be valid integers.") from err
+        "WIDTH",
+        "HEIGHT",
+        "ENTRY",
+        "EXIT",
+        "OUTPUT_FILE",
+        "PERFECT",
+    ]
+    for req in required_keys:
+        if req not in raw_data:
+            raise ValueError(f"Missing mandatory configuration key: {req}.")
+    try:
+        width: int = int(raw_data["WIDTH"])
+        height: int = int(raw_data["HEIGHT"])
+    except ValueError as err:
+        raise ValueError("WIDTH and HEIGHT must be valid integers.") from err
 
-	entry: tuple[int, int] = _parse_coord(raw_data["ENTRY"], "ENTRY")
+    entry: tuple[int, int] = _parse_coord(raw_data["ENTRY"], "ENTRY")
     exit_pt: tuple[int, int] = _parse_coord(raw_data["EXIT"], "EXIT")
-	output_file: str = raw_data["OUTPUT_FILE"]
-	perfect: bool = _parse_bool(raw_data["PERFECT"], "PERFECT")
+    output_file: str = raw_data["OUTPUT_FILE"]
+    perfect: bool = _parse_bool(raw_data["PERFECT"], "PERFECT")
 
-	seed: Optional[int] = None
-	if "SEED" in raw_data:
-		try:
-			seed = int(raw_data["SEED"])
-		except ValueError as err:
-			raise ValueError("SEED must be an integer.") from err
+    seed: Optional[int] = None
+    if "SEED" in raw_data:
+        try:
+            seed = int(raw_data["SEED"])
+        except ValueError as err:
+            raise ValueError("SEED must be an integer.") from err
 
     if width <= 0 or height <= 0:
         raise ValueError("Maze dimensions (WIDTH, HEIGHT) must be positive integers.")
