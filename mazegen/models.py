@@ -1,73 +1,48 @@
-"""Data models and enumerations for the maze generator library."""
+"""Data structures for the maze representation."""
 
 from dataclasses import dataclass
-from enum import IntFlag
-
-
-class Wall(IntFlag):
-    """Bitmask representing walls in cardinal directions."""
-
-    NORTH = 1  # Bit 0 (LSB)
-    EAST = 2   # Bit 1
-    SOUTH = 4  # Bit 2
-    WEST = 8   # Bit 3
 
 
 @dataclass(frozen=True)
-class Point:
-    """Immutable 2D coordinate representation."""
+class Coordinate:
+    """Represents an (x, y) coordinate in the maze grid."""
 
     x: int
     y: int
 
 
+@dataclass
 class Cell:
-    """Represents an individual cell within the maze grid.
+    """Represents a single cell with four cardinal walls.
 
-    Attributes:
-        x: X-coordinate of the cell.
-        y: Y-coordinate of the cell.
-        walls: Bitmask representing active closed walls.
-        visited: Flag for maze generation algorithms.
-        is_42: Flag indicating if this cell is part of the '42' pattern.
+    True means the wall is closed; False means it is open.
     """
 
-    def __init__(self, x: int, y: int) -> None:
-        """Initialize a Cell at specified coordinates with all walls closed.
+    north: bool = True
+    east: bool = True
+    south: bool = True
+    west: bool = True
+    is_42: bool = False
 
-        Args:
-            x: X-coordinate.
-            y: Y-coordinate.
-        """
-        self.x: int = x
-        self.y: int = y
-        self.walls: int = Wall.NORTH | Wall.EAST | Wall.SOUTH | Wall.WEST
-        self.visited: bool = False
-        self.is_42: bool = False
-
-    def remove_wall(self, wall: Wall) -> None:
-        """Open a wall on the specified cardinal direction.
-
-        Args:
-            wall: Cardinal direction wall to open.
-        """
-        self.walls &= ~wall.value
-
-    def has_wall(self, wall: Wall) -> bool:
-        """Check if a wall is closed in the specified direction.
-
-        Args:
-            wall: Cardinal direction wall to check.
-
-        Returns:
-            True if the wall is closed, False otherwise.
-        """
-        return bool(self.walls & wall.value)
+    def is_fully_closed(self) -> bool:
+        """Return True if all four walls are closed."""
+        return self.north and self.east and self.south and self.west
 
     def to_hex(self) -> str:
-        """Convert closed walls bitmask to a uppercase hexadecimal character.
+        """Convert wall states into a single hexadecimal character.
 
-        Returns:
-            Single hexadecimal string character (0-F).
+        Bit 0 (1): North
+        Bit 1 (2): East
+        Bit 2 (4): South
+        Bit 3 (8): West
         """
-        return f"{self.walls:X}"
+        value = 0
+        if self.north:
+            value += 1
+        if self.east:
+            value += 2
+        if self.south:
+            value += 4
+        if self.west:
+            value += 8
+        return format(value, "x")
