@@ -1,282 +1,354 @@
-"""Maze generation and pathfinding module."""
-
 from collections import deque
-import random
-from typing import Dict, List, Optional, Set, Tuple
+from random import Random
+from typing import Dict, Iterator, List, Optional, Set, Tuple
 
-from mazegen.models import Cell, Coordinate
-
-
-# 5 rows x 7 columns bitmap representing "42"
-PATTERN_42: List[List[int]] = [
-    [1, 0, 1, 0, 1, 1, 1],
-    [1, 0, 1, 0, 0, 0, 1],
-    [1, 1, 1, 0, 1, 1, 1],
-    [0, 0, 1, 0, 1, 0, 0],
-    [0, 0, 1, 0, 1, 1, 1],
-]
+Cell = Tuple[int, int]
+Step = Tuple[str, int, int, int, int]
+DIRECTIONS: Tuple[Step, ...] = (
+    ("N", 0, -1, 1, 4),
+    ("E", 1, 0, 2, 8),
+    ("S", 0, 1, 4, 1),
+    ("W", -1, 0, 8, 2),
+)
+PATTERN = ("#.#.###", "#.#...#", "###.###", "..#.#..", "..#.###")
+MAX_CELLS = 100_000
 
 
 class MazeGenerator:
-    """Generates perfect or Pac-Man style mazes with a '42' pattern."""
+    """Generate a perfect maze or a braided board with reciprocal wall bits.
+
+    Coordinates use (x, y); grid access is grid[y][x]. Set wall bits mean
+    closed: north=1, east=2, south=4, west=8. Fully closed pattern cells
+    are excluded from the playable graph. Call generate() before solving.
+    """
 
     def __init__(
         self,
-        width: int,
-        height: int,
-        entry: Tuple[int, int],
-        exit_pt: Tuple[int, int],
+        width: int = 20,
+        height: int = 15,
+        entry: Cell = (0, 0),
+        exit: Optional[Cell] = None,
         perfect: bool = False,
         seed: Optional[int] = None,
+        algorithm: str = "dfs",
     ) -> None:
-        """Initialize the maze generator and validate basic parameters."""
-        if width < 3 or height < 3:
-            raise ValueError("Maze dimensions must be at least 3x3.")
-        if entry == exit_pt:
-            raise ValueError("Entry and exit coordinates must be different.")
-
-        self.width: int = width
-        self.height: int = height
-        self.entry: Coordinate = Coordinate(entry[0], entry[1])
-        self.exit: Coordinate = Coordinate(exit_pt[0], exit_pt[1])
-        self.perfect: bool = perfect
-        self.seed: Optional[int] = seed
-        self._rng: random.Random = random.Random(seed)
-
-        if not self._in_bounds(self.entry.x, self.entry.y):
-            raise ValueError("Entry coordinates are out of bounds.")
-        if not self._in_bounds(self.exit.x, self.exit.y):
-            raise ValueError("Exit coordinates are out of bounds.")
-
-        self.grid: List[List[Cell]] = []
-        self.pattern_42_placed: bool = False
-        self.solution: str = ""
-
-    def generate(self) -> List[List[Cell]]:
-        """Generate the maze grid and compute the shortest path."""
-        self.grid = [
-            [Cell() for _ in range(self.width)] for _ in range(self.height)
+        """Validate parameters and prepare a generator without side effects."""
+        if type(width) is not int or type(height) is not int:
+            raise ValueError("WIDTH and HEIGHT must be positive integers.")
+        if width < 1 or height < 1:
+            raise ValueError("WIDTH and HEIGHT must be positive integers.")
+        if width * height < 2 or width * height > MAX_CELLS:
+            raise ValueError(f"The maze must contain 2 to {MAX_CELLS} cells.")
+        if type(perfect) is not bool:
+            raise ValueError("PERFECT must be True or False.")
+        if seed is not None and type(seed) is not int:
+            raise ValueError("SEED must be an integer.")
+        if algorithm not in ("dfs", "prim"):
+            raise ValueError("ALGORITHM must be dfs or prim.")
+        self.width = width
+        self.height = height
+        self.entry = self._coordinate(entry, "ENTRY")
+        default_exit = (width - 1, height - 1)
+        self.exit = self._coordinate(default_exit if exit is None else exit,
+                                     "EXIT")
+        if self.entry == self.exit:
+            raise ValueError("ENTRY and EXIT must be different cells.")
+        self.perfect = perfect
+        self.seed = seed
+        self.algorithm = algorithm
+        self.grid: List[List[int]] = []
+        self.pattern: Set[Cell] = self._place_pattern()
+        self.pattern_omitted = not self.pattern
+        self._active: List[Cell] = [
+            (x, y) for y in range(height) for x in range(width)
+            if (x, y) not in self.pattern
         ]
-        visited: Set[Coordinate] = set()
-
-        # 1. Place the "42" closed cells in the center if it fits
-        self._apply_42_pattern(visited)
-
-        # Ensure entry and exit were not blocked by the "42" pattern
-        if self.entry in visited or self.exit in visited:
+        potential_edges = sum(
+            1 for cell in self._active
+            for _, other in self._neighbours(cell)
+            if other > cell
+        )
+        if not perfect and potential_edges - len(self._active) + 1 < 2:
             raise ValueError(
-                "Entry or exit overlaps with the central '42' pattern."
+                "PERFECT=False needs space for at least two loops; "
+                "use a larger board or PERFECT=True."
             )
+        self._rng = Random(seed)
 
-        # 2. Carve a spanning tree (perfect maze) using iterative backtracker
-        self._carve_perfect_maze(visited)
+    def _coordinate(self, cell: Cell, name: str) -> Cell:
+        """Return a validated coordinate within this maze."""
+        valid_tuple = isinstance(cell, tuple) and len(cell) == 2
+        if not valid_tuple or any(type(value) is not int for value in cell):
+            raise ValueError(f"{name} must be an integer (x, y) tuple.")
+        x, y = cell
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            raise ValueError(f"{name} {cell} is outside the maze.")
+        return cell
 
-        # 3. If not perfect, convert into a playable Pac-Man style board
+    def _place_pattern(self) -> Set[Cell]:
+        """Place a centred 42 with a corridor margin, avoiding key cells."""
+        if self.width < 9 or self.height < 7:
+            return set()
+        centres = {
+            (x, y)
+            for x in {(self.width - 1) // 2, self.width // 2}
+            for y in {(self.height - 1) // 2, self.height // 2}
+        }
+        # Try positions closest to the centre first.
+        positions = [
+            (x, y)
+            for y in range(1, self.height - 5)
+            for x in range(1, self.width - 7)
+        ]
+        positions.sort(key=lambda p: (
+            abs(2 * p[0] + 7 - self.width)
+            + abs(2 * p[1] + 5 - self.height), p[1], p[0]
+        ))
+        for left, top in positions:
+            blocked = {
+                (left + x, top + y)
+                for y, row in enumerate(PATTERN)
+                for x, char in enumerate(row) if char == "#"
+            }
+            if self.entry in blocked or self.exit in blocked:
+                continue
+            if not self.perfect and centres <= blocked:
+                continue
+            if self._connected_without(blocked):
+                return blocked
+        raise ValueError(
+            "The 42 pattern cannot fit with these entry/exit coordinates."
+        )
+
+    def _connected_without(self, blocked: Set[Cell]) -> bool:
+        """Check that a proposed pattern leaves all corridors connected."""
+        reached = {self.entry}
+        stack = [self.entry]
+        while stack:
+            x, y = stack.pop()
+            for _, dx, dy, _, _ in DIRECTIONS:
+                other = (x + dx, y + dy)
+                if (0 <= other[0] < self.width
+                        and 0 <= other[1] < self.height
+                        and other not in blocked and other not in reached):
+                    reached.add(other)
+                    stack.append(other)
+        return len(reached) == self.width * self.height - len(blocked)
+
+    def _neighbours(self, cell: Cell) -> Iterator[Tuple[Step, Cell]]:
+        """Yield in-bounds, non-pattern neighbours in fixed cardinal order."""
+        x, y = cell
+        for step in DIRECTIONS:
+            _, dx, dy, _, _ = step
+            nx, ny = x + dx, y + dy
+            inside = 0 <= nx < self.width and 0 <= ny < self.height
+            if inside and (nx, ny) not in self.pattern:
+                yield step, (nx, ny)
+
+    def _open(self, cell: Cell, step: Step, other: Cell) -> None:
+        """Open one passage on both sides of a shared wall."""
+        self.grid[cell[1]][cell[0]] &= ~step[3]
+        self.grid[other[1]][other[0]] &= ~step[4]
+
+    def generate(self, seed: Optional[int] = None) -> List[List[int]]:
+        """Generate and return grid[y][x], repeating a configured seed exactly.
+
+        An explicit seed replaces the stored seed. With seed=None stored at
+        construction, each call uses fresh system entropy. Mutating the
+        returned grid changes this generator's maze.
+        """
+        if seed is not None:
+            if type(seed) is not int:
+                raise ValueError("SEED must be an integer.")
+            self.seed = seed
+        self._rng = Random(self.seed)
+        self.grid = [[15] * self.width for _ in range(self.height)]
+        if self.algorithm == "dfs":
+            self._dfs()
+        else:
+            self._prim()
         if not self.perfect:
-            self._make_playable_board()
-
-        # 4. Find the shortest path from entry to exit
-        self.solution = self._find_shortest_path()
-        if not self.solution and self.entry != self.exit:
-            raise RuntimeError("Failed to find a valid path to the exit.")
-
+            self._braid()
         return self.grid
 
-    def _in_bounds(self, x: int, y: int) -> bool:
-        """Check whether (x, y) is inside the grid."""
-        return 0 <= x < self.width and 0 <= y < self.height
-
-    def _apply_42_pattern(self, visited: Set[Coordinate]) -> None:
-        """Mark the '42' pattern cells as closed and visited if possible."""
-        pat_h = len(PATTERN_42)
-        pat_w = len(PATTERN_42[0])
-
-        # Need at least 2 cells of margin around the pattern
-        if self.width < pat_w + 4 or self.height < pat_h + 4:
-            self.pattern_42_placed = False
-            return
-
-        start_x = (self.width - pat_w) // 2
-        start_y = (self.height - pat_h) // 2
-
-        for r in range(pat_h):
-            for c in range(pat_w):
-                if PATTERN_42[r][c] == 1:
-                    cx, cy = start_x + c, start_y + r
-                    self.grid[cy][cx].is_42 = True
-                    visited.add(Coordinate(cx, cy))
-
-        self.pattern_42_placed = True
-
-    def _remove_wall(self, c1: Coordinate, c2: Coordinate) -> None:
-        """Remove the shared wall between two adjacent cells."""
-        dx = c2.x - c1.x
-        dy = c2.y - c1.y
-
-        if dx == 1:
-            self.grid[c1.y][c1.x].east = False
-            self.grid[c2.y][c2.x].west = False
-        elif dx == -1:
-            self.grid[c1.y][c1.x].west = False
-            self.grid[c2.y][c2.x].east = False
-        elif dy == 1:
-            self.grid[c1.y][c1.x].south = False
-            self.grid[c2.y][c2.x].north = False
-        elif dy == -1:
-            self.grid[c1.y][c1.x].north = False
-            self.grid[c2.y][c2.x].south = False
-
-    def _carve_perfect_maze(self, visited: Set[Coordinate]) -> None:
-        """Generate a perfect maze using iterative depth-first search."""
-        stack: List[Coordinate] = [self.entry]
-        visited.add(self.entry)
-
-        directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
-
+    def _dfs(self) -> None:
+        """Carve a spanning tree using an iterative random backtracker."""
+        visited = {self.entry}
+        stack = [self.entry]
         while stack:
-            current = stack[-1]
-            neighbors: List[Coordinate] = []
-
-            for dx, dy in directions:
-                nx, ny = current.x + dx, current.y + dy
-                neighbor = Coordinate(nx, ny)
-                if self._in_bounds(nx, ny) and neighbor not in visited:
-                    neighbors.append(neighbor)
-
-            if neighbors:
-                chosen = self._rng.choice(neighbors)
-                self._remove_wall(current, chosen)
-                visited.add(chosen)
-                stack.append(chosen)
-            else:
+            cell = stack[-1]
+            choices = [
+                (step, other) for step, other in self._neighbours(cell)
+                if other not in visited
+            ]
+            if not choices:
                 stack.pop()
-
-    def _creates_3x3_open_area(self, x: int, y: int) -> bool:
-        """Check if opening walls around (x, y) creates a 3x3 open block."""
-        for top_y in range(max(0, y - 2), min(self.height - 2, y + 1)):
-            for left_x in range(max(0, x - 2), min(self.width - 2, x + 1)):
-                if self._is_3x3_completely_open(left_x, top_y):
-                    return True
-        return False
-
-    def _is_3x3_completely_open(self, left_x: int, top_y: int) -> bool:
-        """Return True if all internal walls inside a 3x3 area are open."""
-        for r in range(top_y, top_y + 3):
-            for c in range(left_x, left_x + 3):
-                cell = self.grid[r][c]
-                if cell.is_42:
-                    return False
-                if c < left_x + 2 and cell.east:
-                    return False
-                if r < top_y + 2 and cell.south:
-                    return False
-        return True
-
-    def _try_open_wall(self, c1: Coordinate, c2: Coordinate) -> bool:
-        """Safely open a wall if neither cell is '42' and no 3x3 is formed."""
-        if not self._in_bounds(c2.x, c2.y):
-            return False
-        cell1 = self.grid[c1.y][c1.x]
-        cell2 = self.grid[c2.y][c2.x]
-        if cell1.is_42 or cell2.is_42:
-            return False
-
-        # Save previous state to rollback if 3x3 rule is violated
-        old1 = (cell1.north, cell1.east, cell1.south, cell1.west)
-        old2 = (cell2.north, cell2.east, cell2.south, cell2.west)
-
-        self._remove_wall(c1, c2)
-        if self._creates_3x3_open_area(c1.x, c1.y) or (
-            self._creates_3x3_open_area(c2.x, c2.y)
-        ):
-            cell1.north, cell1.east, cell1.south, cell1.west = old1
-            cell2.north, cell2.east, cell2.south, cell2.west = old2
-            return False
-        return True
-
-    def _make_playable_board(self) -> None:
-        """Open dead-ends, corners, and center to create loops (Pac-Man mode)."""
-        directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
-
-        # 1. Open dead-ends (cells with 3 closed walls)
-        coords = [
-            Coordinate(x, y)
-            for y in range(self.height)
-            for x in range(self.width)
-        ]
-        self._rng.shuffle(coords)
-
-        for coord in coords:
-            cell = self.grid[coord.y][coord.x]
-            if cell.is_42:
                 continue
-            walls = sum([cell.north, cell.east, cell.south, cell.west])
-            if walls >= 3:
-                shuffled_dirs = list(directions)
-                self._rng.shuffle(shuffled_dirs)
-                for dx, dy in shuffled_dirs:
-                    neighbor = Coordinate(coord.x + dx, coord.y + dy)
-                    if self._try_open_wall(coord, neighbor):
-                        break
+            step, other = self._rng.choice(choices)
+            self._open(cell, step, other)
+            visited.add(other)
+            stack.append(other)
 
-        # 2. Ensure four corners and center have open corridors (at least 2 exits)
-        key_points = [
-            Coordinate(0, 0),
-            Coordinate(self.width - 1, 0),
-            Coordinate(0, self.height - 1),
-            Coordinate(self.width - 1, self.height - 1),
-            Coordinate(self.width // 2, self.height // 2),
+    def _prim(self) -> None:
+        """Carve a random spanning tree using an edge frontier."""
+        visited = {self.entry}
+        frontier = [
+            (self.entry, step, other)
+            for step, other in self._neighbours(self.entry)
         ]
-        for pt in key_points:
-            cell = self.grid[pt.y][pt.x]
-            if cell.is_42:
+        while frontier:
+            index = self._rng.randrange(len(frontier))
+            frontier[index], frontier[-1] = frontier[-1], frontier[index]
+            cell, step, other = frontier.pop()
+            if other in visited:
                 continue
-            open_sides = 4 - sum([cell.north, cell.east, cell.south, cell.west])
-            if open_sides < 2:
-                for dx, dy in directions:
-                    if self._try_open_wall(pt, Coordinate(pt.x + dx, pt.y + dy)):
-                        open_sides += 1
-                        if open_sides >= 2:
-                            break
+            self._open(cell, step, other)
+            visited.add(other)
+            frontier.extend(
+                (other, direction, neighbour)
+                for direction, neighbour in self._neighbours(other)
+                if neighbour not in visited
+            )
 
-    def _find_shortest_path(self) -> str:
-        """Find the shortest path from entry to exit using BFS."""
-        queue: deque[Coordinate] = deque([self.entry])
-        came_from: Dict[Coordinate, Optional[Tuple[Coordinate, str]]] = {
-            self.entry: None
-        }
+    def passages(self, cell: Cell) -> Iterator[Tuple[str, Cell]]:
+        """Yield direction letters and cells reachable through open walls."""
+        self._require_generated()
+        self._coordinate(cell, "Cell")
+        if cell in self.pattern:
+            return
+        walls = self.grid[cell[1]][cell[0]]
+        for step, other in self._neighbours(cell):
+            if not walls & step[3]:
+                yield step[0], other
 
-        moves = [
-            ("N", 0, -1, "north"),
-            ("E", 1, 0, "east"),
-            ("S", 0, 1, "south"),
-            ("W", -1, 0, "west"),
+    def _degree(self, cell: Cell) -> int:
+        """Count open passages incident to a cell."""
+        return 4 - self.grid[cell[1]][cell[0]].bit_count()
+
+    def _opens_large_area(self, cell: Cell, step: Step, other: Cell) -> bool:
+        """Tentatively open an edge and reject any newly open 3x3 area."""
+        self._open(cell, step, other)
+        creates_open_area = False
+        for top in range(max(0, cell[1] - 2),
+                         min(self.height - 3, cell[1]) + 1):
+            for left in range(max(0, cell[0] - 2),
+                              min(self.width - 3, cell[0]) + 1):
+                if self._area_open(left, top):
+                    creates_open_area = True
+        # Restore the wall after checking the temporary passage.
+        self.grid[cell[1]][cell[0]] |= step[3]
+        self.grid[other[1]][other[0]] |= step[4]
+        return creates_open_area
+
+    def _area_open(self, left: int, top: int) -> bool:
+        """Check all twelve interior edges of a 3x3 square."""
+        return all(
+            not self.grid[y][x] & 2
+            for y in range(top, top + 3) for x in range(left, left + 2)
+        ) and all(
+            not self.grid[y][x] & 4
+            for y in range(top, top + 2) for x in range(left, left + 3)
+        )
+
+    def _extra_choices(self, cell: Cell) -> List[Tuple[Step, Cell]]:
+        """Find closed passages that can safely be opened."""
+        return [
+            (step, other) for step, other in self._neighbours(cell)
+            if self.grid[cell[1]][cell[0]] & step[3]
+            and not self._opens_large_area(cell, step, other)
         ]
 
+    def _braid(self) -> None:
+        """Remove avoidable dead ends and ensure at least two cycles."""
+        cells = list(self._active)
+        self._rng.shuffle(cells)
+        for cell in cells:
+            if self._degree(cell) != 1:
+                continue
+            choices = self._extra_choices(cell)
+            if choices:
+                lowest = min(self._degree(other) for _, other in choices)
+                step, other = self._rng.choice([
+                    choice for choice in choices
+                    if self._degree(choice[1]) == lowest
+                ])
+                self._open(cell, step, other)
+        loops = self.loop_count
+        if loops >= 2:
+            return
+        for cell in cells:
+            choices = self._extra_choices(cell)
+            if choices:
+                step, other = self._rng.choice(choices)
+                self._open(cell, step, other)
+                loops += 1
+                if loops >= 2:
+                    return
+        raise ValueError(
+            "Cannot create two loops without an open 3x3 area; "
+            "try a larger maze."
+        )
+
+    @property
+    def loop_count(self) -> int:
+        """Return the number of independent cycles in the playable graph."""
+        self._require_generated()
+        edges = sum(self._degree(cell) for cell in self._active) // 2
+        return edges - len(self._active) + 1
+
+    def _require_generated(self) -> None:
+        """Reject graph operations before a maze has been generated."""
+        if not self.grid:
+            raise ValueError("Call generate() before accessing the maze.")
+
+    def solve(self, start: Optional[Cell] = None,
+              end: Optional[Cell] = None) -> str:
+        """Return a shortest NESW path using breadth-first search."""
+        self._require_generated()
+        source = self._coordinate(
+            self.entry if start is None else start, "Start"
+        )
+        target = self._coordinate(self.exit if end is None else end, "End")
+        if source in self.pattern or target in self.pattern:
+            raise ValueError("Path endpoints cannot be inside the 42 pattern.")
+        parents: Dict[Cell, Tuple[Cell, str]] = {}
+        visited = {source}
+        queue = deque([source])
         while queue:
-            current = queue.popleft()
-            if current == self.exit:
+            cell = queue.popleft()
+            if cell == target:
                 break
+            for direction, other in self.passages(cell):
+                if other not in visited:
+                    visited.add(other)
+                    parents[other] = (cell, direction)
+                    queue.append(other)
+        if target not in visited:
+            raise ValueError("No path exists between the requested endpoints.")
+        # Rebuild the path by following parents from the target to the start.
+        letters: List[str] = []
+        while target != source:
+            target, direction = parents[target]
+            letters.append(direction)
+        return "".join(reversed(letters))
 
-            cell = self.grid[current.y][current.x]
-            for letter, dx, dy, wall_attr in moves:
-                if not getattr(cell, wall_attr):
-                    nxt = Coordinate(current.x + dx, current.y + dy)
-                    if self._in_bounds(nxt.x, nxt.y) and nxt not in came_from:
-                        came_from[nxt] = (current, letter)
-                        queue.append(nxt)
+    def solution_cells(self) -> List[Cell]:
+        """Return shortest-route coordinates, including both endpoints."""
+        cell = self.entry
+        cells = [cell]
+        offsets = {letter: (dx, dy) for letter, dx, dy, _, _ in DIRECTIONS}
+        for letter in self.solve():
+            dx, dy = offsets[letter]
+            cell = (cell[0] + dx, cell[1] + dy)
+            cells.append(cell)
+        return cells
 
-        if self.exit not in came_from:
-            return ""
-
-        path_letters: List[str] = []
-        curr: Optional[Coordinate] = self.exit
-        while curr is not None and came_from[curr] is not None:
-            prev_info = came_from[curr]
-            if prev_info is not None:
-                prev_coord, letter = prev_info
-                path_letters.append(letter)
-                curr = prev_coord
-
-        path_letters.reverse()
-        return "".join(path_letters)
+    def to_text(self) -> str:
+        """Serialize the exact subject format, with LF-terminated lines."""
+        self._require_generated()
+        rows = ["".join(f"{walls:X}" for walls in row) for row in self.grid]
+        rows.extend([
+            "", f"{self.entry[0]},{self.entry[1]}",
+            f"{self.exit[0]},{self.exit[1]}", self.solve(),
+        ])
+        return "\n".join(rows) + "\n"
