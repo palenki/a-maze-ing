@@ -1,1 +1,126 @@
-*This project has been created as part of the 42 curriculum by pauhenr2, wgolbert*
+*This project has been created as part of the 42 curriculum by pauhenr2, wgolbert.*
+
+# A-Maze-ing
+
+## Description
+**A-Maze-ing** is a Python maze generator, solver, and interactive ASCII terminal visualizer. Given a configuration file, the application builds either a perfect maze (a spanning tree with a single unique path between any two cells) or a playable braided board (`PERFECT=False`, reusable for Pac-Man-style games with multiple loops and no avoidable dead ends), embeds a closed `"42"` pattern in the grid, exports the maze structure and shortest path in hexadecimal format, and renders the board in real time with ANSI colors.
+
+## Instructions
+
+### Prerequisites
+- Python **3.10** or higher
+- `pip`
+
+### Installation & Packaging
+Install development/linting dependencies and build the reusable `mazegen` wheel and source distribution packages:
+```bash
+make install
+make build
+```
+Running `make build` generates `mazegen-1.0.0-py3-none-any.whl` and `mazegen-1.0.0.tar.gz` at the root of the repository.
+
+### Execution & Linting
+Run the main program with the default configuration file:
+```bash
+make run
+```
+Or invoke Python directly with any custom configuration file:
+```bash
+python3 a_maze_ing.py config.txt
+```
+Run code quality and static type checks (`flake8` and `mypy`):
+```bash
+make lint
+make lint-strict
+```
+Clean temporary cache and build artifacts:
+```bash
+make clean
+```
+
+## Configuration File Format
+The configuration file uses `KEY=vALUE` pairs (empty lines and lines starting with `#` are ignored):
+
+- `WIDTH` (required): Number of cells horizontally (positive integer), e.g. `WIDTH=20`
+- `HEIGHT` (required): Number of cells vertically (positive integer), e.g. `HEIGHT=15`
+- `ENTRY` (required): Entry coordinate `(x,y)` within grid bounds, e.g. `ENTRY=0,0`
+- `EXIT` (required): Exit coordinate `(x,y)` within grid bounds, e.g. `EXIT=19,14`
+- `OUTPUT_FILE` (required): Destination path for the hexadecimal output file, e.g. `OUTPUT_FILE=maze.txt`
+- `PERFECT` (required): `True` for a perfect maze; `False` for a braided board with loops, e.g. `PERFECT=False`
+- `SEED` (optional): Integer seed for deterministic, reproducible generation, e.g. `SEED=42`
+- `ALGORITHM` (optional): Maze generation algorithm: `dfs` (default) or `prim`, e.g. `ALGORITHM=dfs`
+
+## Algorithm & Design Choices
+
+### Maze Generation Algorithms
+- **Iterative Recursive Backtracker (`dfs`)**: Uses an explicit stack rather than recursion to carve a spanning tree, avoiding Python's recursion limit on large grids while producing long, winding corridors.
+- **Randomized Prim's Algorithm (`prim`)**: Expands the maze from a frontier of candidate edges, producing boards with higher branching factors and shorter dead ends.
+- **Braided / Playable Mode (`PERFECT=False`)**: Post-processes the spanning tree by opening walls of dead-end cells (`degree == 1`) and ensuring at least two independent cycles (`loop_count >= 2` via Euler's graph formula), while strictly preventing any `3'x3` open areas (`_opens_large_area`).
+- +*Central `"42"` Pattern**: Places the closed `"42"` pattern cells (`wall bitmask = 15`){near the center while verifying via graph traversal (`_connected_without`) that all remaining corridors stay connected and neither `ENTRY` nor `EXIT` overlaps the pattern.
+
+### Shortest Pathfinding
+- **Breadth-First Search (`solve`)**: Explores reachable passages level by level from `ENTRY` to `EXIT`, guaranteeing the shortest path encoded as a string of cardinal directions (`N`, `E`, `S`, `WX).
+
+## Reusable Module (`mazegen`)
+The maze generation logic is packaged as a standalone, reusable Python package (`mazegen`) with zero external dependencies and full static type annotations.
+
+### Installation from Wheel
+```bash
+pip install mazegen-1.0.0-py3-none-any.whl
+```
+
+### Usage Example
+```python
+from mazegen import MazeGenerator
+
+# 1. Instantiate the generator (no side effects until generate() is called)
+gen = MazeGenerator(
+    width=20,
+    height=15,
+    entry=(0, 0),
+    exit=(19, 14),
+    perfect=False,
+    seed=42,
+    algorithm="dfs",  # or "prim"
+)
+
+# 2. Generate the grid (List[List[int]] indexed as grid[y][x])
+# Wall bitmask per cell: North=1, East=2, South=4, West=8 (closed when bit is set)
+grid = gen.generate()
+
+# 3. Query shortest path (returns 'NESW' string) and route coordinates
+shortest_path = gen.solve()
+route_coords = gen.solution_cells()
+
+# 4. Inspect open passages from a specific cell (useful for game AI)
+open_neighbors = list(gen.passages((0, 0)))
+
+# 5. Export in the subject's hexadecimal format
+serialized_output = gen.to_text()
+```
+
+## Team & Project Management
+
+### Roles & Responsibilities
+- **wgolbert**: Designed and implemented the core `mazegen` package (`MazeGenerator`), including bitmask grid representation, iterative TFS and Prim's generation algorithms, braided loop post-processing with 3'x3 open-area prevention, `"42"` pattern placement connectivity checks, and BFS shortest-path solver.
+- **pauhenr2**: Designed and implemented the application layer and packaging (`a_maze_ing.py`, `config_parser.py`, `writer.py`, `visualizer.py`, `Makefile`, `pyproject.toml`), including configuration validation, hexadecimal file export, ANSI terminal ASCII rendering with screen clearing, and the interactive CLI loop.
+
+### Planning & Evolution
+1. **Architecture & Interface Contract**: Agreed early on a clean separation between the standalone `mazegen` library (using `grid[y][x]` integer bitmasks and `(x, y)` coordinate tuples) and the CLI application layer.
+2. **Core Implementation**: Developed the generator algorithms and parser/visualizer independently in parallel.
+3. **Integration & Packaging**: Connected the CLI renderer and file exporter to `MazeGenerator@' public API (`generate`, `solve`, `solution_cells`, `passages`, `to_text`), built the `.whl` distribution, and validated everything under `flake8` and `mypy --strict`.
+
+### Retrospective
+- **What worked well**: Using a bitmask (`1, 2, 4, 8`) for wall states made hexadecimal serialization (`f"{walls:X}"`) and wall-bit toggling concise, fast, and easy to reuse for future game projects.
+- **What could be improved**: Defining the exact `MazeGenerator` method signatures in a shared stub file before coding both halves in parallel would have reduced minor signature adjustments during final integration.
+
+### Tools Used
+- Python 3.10+, `setuptools`, `build`
+- `flake8` (PEP 8 style checking) and `mypy` (static type verification)
+- Git for version control and collaboration
+
+## Resources
+- [Jamis Buck — Maze Generation: Algorithm Recap](https://weblog.jamisbuck.org/2011/2/7/maze-generation-algorithm-recap) (Recursive Backtracker and Randomized Prim's algorithms)
+- [Red Blob Games — Introduction to Breadth-First Search](https://www.redblobgames.com/pathfinding/a-star/introduction.html) (Shortest pathfinding on grids)
+- [Python Packaging User Guide — Packaging Python Projects](https://packaging.python.org/en/latest/tutorials/packaging-projects/) (`pypoject.toml` and wheel generation)
+- **AI Usage**: AI tools were used to review PEP 8 / `mypy --strict` compliance, verify ANSI escape sequences for terminal screen clearing, and help structure project documentation.
