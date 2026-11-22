@@ -19,15 +19,15 @@ debug:
 	$(PYTHON) -m pdb a_maze_ing.py config.txt
 
 clean:
-	rm -rf __pycache__ .mypy_cache
+	rm -rf __pycache__ */__pycache__ .mypy_cache
 
 lint:
-	$(PYTHON) -m flake8 .
-	$(PYTHON) -m mypy . --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
+	flake8 .
+	mypy . --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
 
 lint-strict:
-	$(PYTHON)flake8 .
-	$(PYTHON)mypy --strict .
+	flake8 .
+	mypy --strict .
 
 build:
 	$(PYTHON) -m build
