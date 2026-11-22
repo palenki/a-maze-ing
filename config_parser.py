@@ -15,11 +15,12 @@ class MazeConfig:
     output_file: str
     perfect: bool
     seed: Optional[int] = None
+    algorithm: str = "dfs"
 
 
 def _parse_coord(raw: str, key_name: str) -> tuple[int, int]:
     """Parse a 'x,y' string into a tuple of two integers."""
-    parts: list = raw.split(",")
+    parts: list[str] = raw.split(",")
     if len(parts) != 2:
         raise ValueError(f"{key_name} must be in 'x,y' format, got '{raw}'.")
     try:
@@ -28,7 +29,7 @@ def _parse_coord(raw: str, key_name: str) -> tuple[int, int]:
     except ValueError as err:
         raise ValueError(
             f"{key_name} coordinates must be integers, got '{raw}'."
-    ) from err
+        ) from err
     return (x, y)
 
 
@@ -43,17 +44,7 @@ def _parse_bool(raw: str, key_name: str) -> bool:
 
 
 def parse_config(filepath: str) -> MazeConfig:
-    """Read, parse, and validate a key-value maze configuration file.
-
-    Args:
-        filepath: Path to the configuration file.
-
-    Returns:
-        Validated MazeConfig dataclass instance.
-
-    Raises:
-        ValueError: If mandatory keys are missing or invalid parameters supplied.
-    """
+    """Read, parse, and validate a key-value maze configuration file."""
     raw_data: dict[str, str] = {}
 
     try:
@@ -64,13 +55,16 @@ def parse_config(filepath: str) -> MazeConfig:
                     continue
 
                 if "=" not in line:
-                    raise ValueError(f"Syntax error on line {line_num}: (missing '=').")
+                    raise ValueError(
+                        f"Syntax error on line {line_num}: (missing '=').")
 
                 key, value = line.split("=", 1)
                 key = key.strip().upper()
                 value = value.strip()
                 if not key or not value:
-                    raise ValueError(f"Syntax error on line {line_num}: empty key or value.")
+                    raise ValueError(
+                        f"Syntax error on line {line_num}: empty key or value."
+                        )
                 raw_data[key] = value
     except OSError as err:
         raise RuntimeError(f"Could not read config file: {err}") from err
@@ -92,8 +86,24 @@ def parse_config(filepath: str) -> MazeConfig:
     except ValueError as err:
         raise ValueError("WIDTH and HEIGHT must be valid integers.") from err
 
+    if width <= 0 or height <= 0:
+        raise ValueError(
+            "Maze dimensions (WIDTH, HEIGHT) must be positive integers.")
+    if width * height < 2:
+        raise ValueError("Maze must have at least 2 cells for entry and exit.")
+
     entry: tuple[int, int] = _parse_coord(raw_data["ENTRY"], "ENTRY")
     exit_pt: tuple[int, int] = _parse_coord(raw_data["EXIT"], "EXIT")
+
+    if not (0 <= entry[0] < width and 0 <= entry[1] < height):
+        raise ValueError(
+            f"ENTRY {entry} is outside maze bounds ({width}x{height}).")
+    if not (0 <= exit_pt[0] < width and 0 <= exit_pt[1] < height):
+        raise ValueError(
+            f"EXIT {exit_pt} is outside maze bounds ({width}x{height}).")
+    if entry == exit_pt:
+        raise ValueError("ENTRY and EXIT points must be different.")
+
     output_file: str = raw_data["OUTPUT_FILE"]
     perfect: bool = _parse_bool(raw_data["PERFECT"], "PERFECT")
 
@@ -104,14 +114,7 @@ def parse_config(filepath: str) -> MazeConfig:
         except ValueError as err:
             raise ValueError("SEED must be an integer.") from err
 
-    if width <= 0 or height <= 0:
-        raise ValueError("Maze dimensions (WIDTH, HEIGHT) must be positive integers.")
-    if not (0 <= entry[0] < width and 0 <= entry[1] < height):
-        raise ValueError(f"ENTRY {entry} is outside maze bounds ({width}x{height}).")
-    if not (0 <= exit_pt[0] < width and 0 <= exit_pt[1] < height):
-        raise ValueError(f"EXIT {exit_pt} is outside maze bounds ({width}x{height}).")
-    if entry == exit_pt:
-        raise ValueError("ENTRY and EXIT points must be different.")
+    algorithm: str = raw_data.get("ALGORITHM", "dfs").lower()
 
     return MazeConfig(
         width=width,
@@ -121,4 +124,5 @@ def parse_config(filepath: str) -> MazeConfig:
         output_file=output_file,
         perfect=perfect,
         seed=seed,
+        algorithm=algorithm,
     )

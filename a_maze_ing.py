@@ -5,7 +5,7 @@ from typing import Optional
 
 from config_parser import MazeConfig, parse_config
 from mazegen import MazeGenerator
-from visualizer import render_maze
+from visualizer import render_maze, clear_screen
 from writer import write_maze_file
 
 
@@ -13,65 +13,53 @@ def build_and_save(
     config: MazeConfig, seed_override: Optional[int] = None
 ) -> MazeGenerator:
     """Instantiate generator, create maze, and write output file."""
-    active_seed: int | None = seed_override if seed_override is not None else config.seed
+    active_seed: int | None = (
+        seed_override if seed_override is not None else config.seed
+    )
 
     generator = MazeGenerator(
         width=config.width,
         height=config.height,
         entry=config.entry,
-        exit_pt=config.exit_pt,
+        exit=config.exit_pt,
         perfect=config.perfect,
         seed=active_seed,
+        algorithm=config.algorithm,
     )
-    grid: list[list[Cell]] = generator.generate()
-
-    if not generator.pattern_42_placed:
-        print(
-            "Warning: Maze is too small to display the '42' pattern.",
-            file=sys.stderr,
-        )
-
-    write_maze_file(
-        filepath=config.output_file,
-        grid=grid,
-        entry=config.entry,
-        exit_pt=config.exit_pt,
-        solution=generator.solution,
-    )
+    generator.generate()
+    write_maze_file(filepath=config.output_file, generator=generator)
     return generator
 
 
-def clear_screen() -> None:
-    """Clear the terminal screen, scrollback buffer, and move cursor to top-left."""
-    print("\033[2J\033[3J\033[H", end="", flush=True)
-
-
 def interactive_loop(config: MazeConfig, generator: MazeGenerator) -> None:
-    """Run the interactive terminal menu required by the subject."""
+    """Run the interactive terminal menu."""
     show_path: bool = True
     color_index: int = 0
     regen_count: int = 0
 
     while True:
-        clear_screen()
-        print("===== A-Maze-ing =====")
+        path_cells: set[tuple[int, int]] = set(generator.solution_cells())
         render_maze(
             grid=generator.grid,
             entry=config.entry,
             exit_pt=config.exit_pt,
-            solution=generator.solution,
+            pattern_cells=generator.pattern,
+            path_cells=path_cells,
             show_path=show_path,
             color_index=color_index,
         )
+        if generator.pattern_omitted:
+            print("Warning: Maze is too small to display the 42 pattern.")
         print("\n1. Re-generate a new maze")
         print("2. Show/Hide the shortest path")
         print("3. Rotate the wall colours")
         print("4. Quit")
 
         try:
-            choice = input("Choice? (1-4): ").strip()
+            choice: str = input("Choice? (1-4): ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nExiting.")
+            clear_screen()
             break
 
         if choice == "1":
@@ -99,11 +87,11 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        config = parse_config(sys.argv[1])
-        generator = build_and_save(config)
+        config: MazeConfig = parse_config(sys.argv[1])
+        generator: MazeGenerator = build_and_save(config)
         interactive_loop(config, generator)
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+    except Exception as err:
+        print(f"Error: {err}", file=sys.stderr)
         sys.exit(1)
 
 
