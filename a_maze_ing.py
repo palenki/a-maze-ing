@@ -1,6 +1,7 @@
 """Main CLI entry point for A-Maze-ing."""
 
 import sys
+import time
 from typing import Optional
 
 from config_parser import MazeConfig, parse_config
@@ -26,9 +27,22 @@ def build_and_save(
         seed=active_seed,
         algorithm=config.algorithm,
     )
-    generator.generate()
+    def animate_step(grid: list[list[int]]) -> None:
+        render_maze(
+            grid=grid,
+            entry=config.entry,
+            exit_pt=config.exit_pt,
+            pattern_cells=generator.pattern,
+            path_cells=set(),
+            show_path=False,
+        )
+        time.sleep(0.02)
+    clear_screen()
+    generator.generate(on_step=animate_step)
     write_maze_file(filepath=config.output_file, generator=generator)
     return generator
+
+
 
 
 def interactive_loop(config: MazeConfig, generator: MazeGenerator) -> None:
