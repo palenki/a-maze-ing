@@ -21,7 +21,7 @@ def build_and_save(
         width=config.width,
         height=config.height,
         entry=config.entry,
-        exit=config.exit_pt,
+        exit_pt=config.exit_pt,
         perfect=config.perfect,
         seed=active_seed,
         algorithm=config.algorithm,

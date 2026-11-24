@@ -27,7 +27,7 @@ class MazeGenerator:
         width: int = 20,
         height: int = 15,
         entry: Cell = (0, 0),
-        exit: Optional[Cell] = None,
+        exit_pt: Optional[Cell] = None,
         perfect: bool = False,
         seed: Optional[int] = None,
         algorithm: str = "dfs",
@@ -49,9 +49,9 @@ class MazeGenerator:
         self.height = height
         self.entry = self._coordinate(entry, "ENTRY")
         default_exit = (width - 1, height - 1)
-        self.exit = self._coordinate(default_exit if exit is None else exit,
-                                     "EXIT")
-        if self.entry == self.exit:
+        self.exit_pt = self._coordinate(
+                default_exit if exit_pt is None else exit_pt, "EXIT")
+        if self.entry == self.exit_pt:
             raise ValueError("ENTRY and EXIT must be different cells.")
         self.perfect = perfect
         self.seed = seed
@@ -89,11 +89,6 @@ class MazeGenerator:
         """Place a centred 42 with a corridor margin, avoiding key cells."""
         if self.width < 9 or self.height < 7:
             return set()
-        centres = {
-            (x, y)
-            for x in {(self.width - 1) // 2, self.width // 2}
-            for y in {(self.height - 1) // 2, self.height // 2}
-        }
         # Try positions closest to the centre first.
         positions = [
             (x, y)
@@ -110,14 +105,12 @@ class MazeGenerator:
                 for y, row in enumerate(PATTERN)
                 for x, char in enumerate(row) if char == "#"
             }
-            if self.entry in blocked or self.exit in blocked:
-                continue
-            if not self.perfect and centres <= blocked:
+            if self.entry in blocked or self.exit_pt in blocked:
                 continue
             if self._connected_without(blocked):
                 return blocked
         raise ValueError(
-            "The 42 pattern cannot fit with these entry/exit coordinates."
+            "The 42 pattern cannot fit with these entry/exit_pt coordinates."
         )
 
     def _connected_without(self, blocked: Set[Cell]) -> bool:
@@ -210,54 +203,6 @@ class MazeGenerator:
                 if neighbour not in visited
             )
 
-    def passages(self, cell: Cell) -> Iterator[Tuple[str, Cell]]:
-        """Yield direction letters and cells reachable through open walls."""
-        self._require_generated()
-        self._coordinate(cell, "Cell")
-        if cell in self.pattern:
-            return
-        walls = self.grid[cell[1]][cell[0]]
-        for step, other in self._neighbours(cell):
-            if not walls & step[3]:
-                yield step[0], other
-
-    def _degree(self, cell: Cell) -> int:
-        """Count open passages incident to a cell."""
-        return 4 - self.grid[cell[1]][cell[0]].bit_count()
-
-    def _opens_large_area(self, cell: Cell, step: Step, other: Cell) -> bool:
-        """Tentatively open an edge and reject any newly open 3x3 area."""
-        self._open(cell, step, other)
-        creates_open_area = False
-        for top in range(max(0, cell[1] - 2),
-                         min(self.height - 3, cell[1]) + 1):
-            for left in range(max(0, cell[0] - 2),
-                              min(self.width - 3, cell[0]) + 1):
-                if self._area_open(left, top):
-                    creates_open_area = True
-        # Restore the wall after checking the temporary passage.
-        self.grid[cell[1]][cell[0]] |= step[3]
-        self.grid[other[1]][other[0]] |= step[4]
-        return creates_open_area
-
-    def _area_open(self, left: int, top: int) -> bool:
-        """Check all twelve interior edges of a 3x3 square."""
-        return all(
-            not self.grid[y][x] & 2
-            for y in range(top, top + 3) for x in range(left, left + 2)
-        ) and all(
-            not self.grid[y][x] & 4
-            for y in range(top, top + 2) for x in range(left, left + 3)
-        )
-
-    def _extra_choices(self, cell: Cell) -> List[Tuple[Step, Cell]]:
-        """Find closed passages that can safely be opened."""
-        return [
-            (step, other) for step, other in self._neighbours(cell)
-            if self.grid[cell[1]][cell[0]] & step[3]
-            and not self._opens_large_area(cell, step, other)
-        ]
-
     def _braid(self) -> None:
         """Remove avoidable dead ends and ensure at least two cycles."""
         cells = list(self._active)
@@ -289,6 +234,43 @@ class MazeGenerator:
             "try a larger maze."
         )
 
+    def _degree(self, cell: Cell) -> int:
+        """Count open passages incident to a cell."""
+        return 4 - self.grid[cell[1]][cell[0]].bit_count()
+
+    def _extra_choices(self, cell: Cell) -> List[Tuple[Step, Cell]]:
+        """Find closed passages that can safely be opened."""
+        return [
+            (step, other) for step, other in self._neighbours(cell)
+            if self.grid[cell[1]][cell[0]] & step[3]
+            and not self._opens_large_area(cell, step, other)
+        ]
+
+    def _opens_large_area(self, cell: Cell, step: Step, other: Cell) -> bool:
+        """Tentatively open an edge and reject any newly open 3x3 area."""
+        self._open(cell, step, other)
+        creates_open_area = False
+        for top in range(max(0, cell[1] - 2),
+                         min(self.height - 3, cell[1]) + 1):
+            for left in range(max(0, cell[0] - 2),
+                              min(self.width - 3, cell[0]) + 1):
+                if self._area_open(left, top):
+                    creates_open_area = True
+        # Restore the wall after checking the temporary passage.
+        self.grid[cell[1]][cell[0]] |= step[3]
+        self.grid[other[1]][other[0]] |= step[4]
+        return creates_open_area
+
+    def _area_open(self, left: int, top: int) -> bool:
+        """Check all twelve interior edges of a 3x3 square."""
+        return all(
+            not self.grid[y][x] & 2
+            for y in range(top, top + 3) for x in range(left, left + 2)
+        ) and all(
+            not self.grid[y][x] & 4
+            for y in range(top, top + 2) for x in range(left, left + 3)
+        )
+
     @property
     def loop_count(self) -> int:
         """Return the number of independent cycles in the playable graph."""
@@ -304,11 +286,10 @@ class MazeGenerator:
     def solve(self, start: Optional[Cell] = None,
               end: Optional[Cell] = None) -> str:
         """Return a shortest NESW path using breadth-first search."""
-        self._require_generated()
         source = self._coordinate(
             self.entry if start is None else start, "Start"
         )
-        target = self._coordinate(self.exit if end is None else end, "End")
+        target = self._coordinate(self.exit_pt if end is None else end, "End")
         if source in self.pattern or target in self.pattern:
             raise ValueError("Path endpoints cannot be inside the 42 pattern.")
         parents: Dict[Cell, Tuple[Cell, str]] = {}
@@ -318,7 +299,7 @@ class MazeGenerator:
             cell = queue.popleft()
             if cell == target:
                 break
-            for direction, other in self.passages(cell):
+            for direction, other in self._passages(cell):
                 if other not in visited:
                     visited.add(other)
                     parents[other] = (cell, direction)
@@ -331,6 +312,13 @@ class MazeGenerator:
             target, direction = parents[target]
             letters.append(direction)
         return "".join(reversed(letters))
+
+    def _passages(self, cell: Cell) -> Iterator[Tuple[str, Cell]]:
+        """Yield direction letters and cells reachable through open walls."""
+        walls = self.grid[cell[1]][cell[0]]
+        for step, other in self._neighbours(cell):
+            if not walls & step[3]:
+                yield step[0], other
 
     def solution_cells(self) -> List[Cell]:
         """Return shortest-route coordinates, including both endpoints."""
@@ -345,10 +333,9 @@ class MazeGenerator:
 
     def to_text(self) -> str:
         """Serialize the exact subject format, with LF-terminated lines."""
-        self._require_generated()
         rows = ["".join(f"{walls:X}" for walls in row) for row in self.grid]
         rows.extend([
             "", f"{self.entry[0]},{self.entry[1]}",
-            f"{self.exit[0]},{self.exit[1]}", self.solve(),
+            f"{self.exit_pt[0]},{self.exit_pt[1]}", self.solve(),
         ])
         return "\n".join(rows) + "\n"
