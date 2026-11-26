@@ -10,7 +10,7 @@ DIRECTIONS: tuple[Step, ...] = (
     ("S", 0, 1, 4, 1),
     ("W", -1, 0, 8, 2),
 )
-PATTERN = ("#.#.###", "#.#...#", "###.###", "..#.#..", "..#.###")
+PATTERN = ("#...###", "#.....#", "###.###", "..#.#..", "..#.###")
 MAX_CELLS = 100_000
 
 
@@ -261,7 +261,6 @@ class MazeGenerator:
                               min(self.width - 3, cell[0]) + 1):
                 if self._area_open(left, top):
                     creates_open_area = True
-        # Restore the wall after checking the temporary passage.
         self.grid[cell[1]][cell[0]] |= step[3]
         self.grid[other[1]][other[0]] |= step[4]
         return creates_open_area

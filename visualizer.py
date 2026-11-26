@@ -1,18 +1,17 @@
 """ASCII terminal renderer with ANSI color support."""
 
 Cell = tuple[int, int]
-WALL_COLORS: list[str] = [
-    "\033[97m",
-    "\033[96m",
-    "\033[93m",
-    "\033[92m",
-    "\033[95m",
+COLORS_THEME: list[tuple[str, str]] = [
+    ("\033[97m", "\033[93m"),
+    ("\033[96m", "\033[95m"),
+    ("\033[93m", "\033[97m"),
+    ("\033[92m", "\033[96m"),
+    ("\033[95m", "\033[92m"),
 ]
 RESET_COLOR = "\033[0m"
 ENTRY_COLOR = "\033[92m"
 EXIT_COLOR = "\033[91m"
 PATH_COLOR = "\033[94m"
-PATTERN_42_COLOR = "\033[93m"
 
 
 def clear_screen() -> None:
@@ -28,14 +27,15 @@ def render_maze(
     path_cells: set[Cell],
     show_path: bool = True,
     color_index: int = 0,
+    clear: bool = True,
 ) -> None:
     """Clear screen and print the maze in ASCII art to the terminal."""
-    clear_screen()
-    print("===== A-Maze-ing =====")
+
+    lines: list[str] = ["===== A-Maze-ing ====="]
 
     height: int = len(grid)
     width: int = len(grid[0])
-    wall_c: str = WALL_COLORS[color_index % len(WALL_COLORS)]
+    wall_c, pattern_c = COLORS_THEME[color_index % len(COLORS_THEME)]
     active_path: set[Cell] = path_cells if show_path else set()
 
     for y in range(height):
@@ -47,7 +47,7 @@ def render_maze(
             else:
                 top_line += "   "
         top_line += f"{wall_c}+{RESET_COLOR}"
-        print(top_line)
+        lines.append(top_line)
 
         mid_line: str = ""
         for x in range(width):
@@ -62,7 +62,7 @@ def render_maze(
             elif curr == exit_pt:
                 mid_line += f" {EXIT_COLOR}E{RESET_COLOR} "
             elif curr in pattern_cells:
-                mid_line += f"{PATTERN_42_COLOR}###{RESET_COLOR}"
+                mid_line += f"{pattern_c}###{RESET_COLOR}"
             elif curr in active_path:
                 mid_line += f" {PATH_COLOR}*{RESET_COLOR} "
             else:
@@ -72,7 +72,7 @@ def render_maze(
             mid_line += f"{wall_c}|{RESET_COLOR}"
         else:
             mid_line += " "
-        print(mid_line)
+        lines.append(mid_line)
 
     bot_line: str = ""
     for x in range(width):
@@ -82,4 +82,11 @@ def render_maze(
         else:
             bot_line += "   "
     bot_line += f"{wall_c}+{RESET_COLOR}"
-    print(bot_line)
+    lines.append(bot_line)
+
+    frame: str = "\n".join(lines)
+    if clear:
+        clear_screen()
+        print(frame, flush=True)
+    else:
+        print(f"\033[H{frame}", flush=True)

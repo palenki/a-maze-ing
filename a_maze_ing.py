@@ -35,6 +35,7 @@ def build_and_save(
             pattern_cells=generator.pattern,
             path_cells=set(),
             show_path=False,
+            clear=False,
         )
         time.sleep(0.02)
     clear_screen()
